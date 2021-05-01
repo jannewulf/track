@@ -3,7 +3,7 @@ track is a simple tool to track times for projects.
 It makes it easy to track the times you are working on a project.
 
 ## Usage
-The times you insert are passed to `date`, i.e. values like `now`, `now -10 min` and `yesterday 08:13` can be used.
+The times you insert are passed to `date`, i.e. values like `'now'`, `'now -10 min'` and `'yesterday 08:13'` can be used.
 
 ### Start timer
 ```
