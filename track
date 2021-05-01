@@ -1,0 +1,112 @@
+#!/bin/bash
+
+date_regex='[[:digit:]]\{4\}-[[:digit:]]\{2\}-[[:digit:]]\{2\} [[:digit:]]\{2\}:[[:digit:]]\{2\}:[[:digit:]]\{2\}+[[:digit:]]\{2\}:[[:digit:]]\{2\}'
+
+function now() {
+  date --rfc-3339=seconds
+}
+
+function timediff() {
+  echo $(($(date --date="$1" +%s) - $(date --date="$2" +%s)))
+}
+
+function sec_to_hrs_min() {
+  # $1=seconds
+  min=$(($1/60%60))
+  hrs=$(($1/60/60))
+  printf '%d:%02d' $hrs $min
+}
+
+function get_project_entries() {
+  # $1=project $2=file
+  grep -Z "^$1," "$2"
+}
+
+function get_start() {
+  # $1=csv_entry
+  echo "$1" | cut -d , -f 2
+}
+
+function get_stop() {
+  # $1=csv_entry
+  echo "$1" | cut -d , -f 3 
+}
+
+function get_stop_or_now() {
+  # $1=csv_entry
+  local stop="$(get_stop "$1")"
+  if [[ -n "$stop" ]]; then
+    echo "$stop"
+  else
+    now
+  fi
+}
+
+function get_active_count() {
+  # $1=project $2=file
+  get_project_entries "$1" "$2" | cut -d , -f 3 | grep '^$' | wc -l
+}
+
+function start() {
+  # $1=project $2=datetime $3=file
+  if [[ $(get_active_count "$1" "$3") > 0 ]]; then
+    echo "Timer for $1 is already active" >> /dev/stderr
+    exit 1
+  fi
+  echo "$1,$2," >> "$3"
+}
+
+function stop() {
+  # $1=project $2=datetime $3=file
+  if [[ $(get_active_count "$1" "$3") == 0 ]]; then
+    echo "No active timer for $1 found" >> /dev/stderr
+    exit 1
+  fi
+  sed -i "/^$1,$date_regex,$/ s/$/$2/" "$3"
+}
+
+function status() {
+  # $1=project $2=file
+  local today=0
+  local week=0
+  local total=0
+
+  while read -r e; do
+    local stop=$(get_stop_or_now "$e")
+    local entry_length=$(timediff "$(get_stop_or_now "$e")" "$(get_start "$e")")
+    total=$(($total + $entry_length))
+    if [[ $(timediff "tomorrow 00:00:00" "$stop") -lt $((24*60*60)) ]]; then
+      today=$(($today + $entry_length))
+    fi
+    if [[ $(timediff "monday" "$stop") -lt $((7*24*60*60)) ]]; then
+      week=$(($week + $entry_length))
+    fi
+  done <<< $(get_project_entries "$1" "$2")
+  
+  echo "Today: "$(sec_to_hrs_min $today)
+  echo "Week:  $(sec_to_hrs_min $week)"
+  echo "Total: $(sec_to_hrs_min $total)"
+}
+
+
+if [[ "$2" == *","* ]]; then
+  echo "The char , is not allowed in Project titles"
+  exit 1
+fi
+
+file=~/.local/share/track/data.csv
+mkdir -p "$(dirname "$file")"
+touch "$file"
+
+case $1 in
+  "start" ) 
+    start "$2" "$(date --date="${3-now}" --rfc-3339=seconds)" "$file" 
+    if [[ -n ${4+x} ]]; then
+      stop "$2" "$(date --date="$4" --rfc-3339=seconds)" "$file"
+    fi
+    ;;
+  "stop" )
+    stop "$2" "$(date --date="${3-now}" --rfc-3339=seconds)" "$file" ;;
+  "status" )
+    status "$2" "$file" ;;
+esac
